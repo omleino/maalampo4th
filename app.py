@@ -1,9 +1,7 @@
 import streamlit as st
 import matplotlib.pyplot as plt
+import pandas as pd
 
-# ---------------------------
-#   APUFUNKTIOITA
-# ---------------------------
 def laske_kustannukset_50v(investointi, omaisuuden_myynti, investointi_laina_aika, korko,
                             sahkon_hinta, sahkon_kulutus_kwh,
                             korjaus_vali, korjaus_hinta, korjaus_laina_aika,
@@ -51,15 +49,12 @@ def laske_kustannukset_50v(investointi, omaisuuden_myynti, investointi_laina_aik
 
         korjauslainat = [l for l in korjauslainat if l["vuosia_jaljella"] > 0]
 
-        # Vuoden kokonaiskustannus
         kokonais = lyh + korko_investointi + sahkolasku + korjaus_lyhennys_yht + korjaus_korko_yht
         kustannukset.append(kokonais)
 
-        # Päivitä sähkön hinta
         sahkon_hinta_vuosi *= (1 + sahkon_inflaatio / 100)
 
     return kustannukset
-
 
 def laske_kaukolampo_kustannukset(kustannus, inflaatio):
     hinta = kustannus
@@ -69,24 +64,15 @@ def laske_kaukolampo_kustannukset(kustannus, inflaatio):
         hinta *= (1 + inflaatio / 100)
     return tulos
 
-
 def diskonttaa_kustannukset(kustannukset, diskontto):
-    """Palauttaa listan nykyarvoon diskontatuista kustannuksista (PV)."""
     return [k / ((1 + diskontto / 100) ** vuosi) for vuosi, k in enumerate(kustannukset, 1)]
 
-
 def npv(kustannukset, diskontto):
-    """Yksinkertainen NPV = ∑ PV."""
     return sum(diskonttaa_kustannukset(kustannukset, diskontto))
 
-
-# ---------------------------
-#   STREAMLIT-SOVELLUS
-# ---------------------------
 def main():
     st.title("Maalämpö vs Kaukolämpö – 50 v vertailu (kaikki vaihtoehdot + NPV)")
 
-    # ----- Syötteet -----
     with st.sidebar:
         st.header("Perustiedot")
         investointi = st.number_input("Investoinnin suuruus (€)", value=650_000.0, step=10_000.0)
@@ -115,37 +101,27 @@ def main():
         st.header("Vastikkeen laskenta")
         maksavat_neliot = st.number_input("Maksavat neliöt (m²)", value=1_000.0, step=100.0)
 
-    # ----- Laskelmat -----
     vuodet = list(range(1, 51))
 
     kaukolampo = laske_kaukolampo_kustannukset(kaukolampo_kustannus, kaukolampo_inflaatio)
-
     maalampo_ilman = laske_kustannukset_50v(
         investointi, 0, investointi_laina_aika, korko,
         sahkon_hinta, sahkon_kulutus,
         korjaus_vali, korjaus_hinta, korjaus_laina_aika, sahkon_inflaatio
     )
-
     maalampo_myynnilla = laske_kustannukset_50v(
         investointi, omaisuuden_myynti, investointi_laina_aika, korko,
         sahkon_hinta, sahkon_kulutus,
         korjaus_vali, korjaus_hinta, korjaus_laina_aika, sahkon_inflaatio
     )
 
-    # Lisätään menetetty vuokrakassavirta
     kassavirta_vuosi = menetetty_kassavirta_kk * 12
     maalampo_myynnilla = [m + kassavirta_vuosi for m in maalampo_myynnilla]
 
-    # ----- NPV-laskelmat -----
-    npv_kaukolampo = npv(kaukolampo, diskontto)
-    npv_maalampo_ilman = npv(maalampo_ilman, diskontto)
-    npv_maalampo_myynnilla = npv(maalampo_myynnilla, diskontto)
-
-    # ----- Kustannuskuvaaja -----
     fig, ax = plt.subplots()
     ax.plot(vuodet, kaukolampo, label="Kaukolämpö", linestyle="--")
     ax.plot(vuodet, maalampo_ilman, label="Maalämpö (ilman myyntiä)")
-    ax.plot(vuodet, maalampo_myynnilla, label="Maalämpö (myynti + menetetty kassavirta)")
+    ax.plot(vuodet, maalampo_myynnilla, label="Maalämpö (myynti + kassavirta)")
     ax.set_title("Lämmityskustannukset 50 vuoden ajalla (nimelliset €)")
     ax.set_xlabel("Vuosi")
     ax.set_ylabel("Kustannus (€)")
@@ -153,30 +129,34 @@ def main():
     ax.grid(True)
     st.pyplot(fig)
 
-    # ----- NPV-tulos -----
     st.markdown("## Nettonykyarvot (NPV, €)")
     col1, col2, col3 = st.columns(3)
-    col1.metric("Kaukolämpö", f"{npv_kaukolampo:,.0f}")
-    col2.metric("Maalämpö ilman myyntiä", f"{npv_maalampo_ilman:,.0f}")
-    col3.metric("Maalämpö omaisuuden myynnillä", f"{npv_maalampo_myynnilla:,.0f}")
+    col1.metric("Kaukolämpö", f"{npv(kaukolampo, diskontto):,.0f}")
+    col2.metric("Maalämpö ilman myyntiä", f"{npv(maalampo_ilman, diskontto):,.0f}")
+    col3.metric("Maalämpö myynnillä", f"{npv(maalampo_myynnilla, diskontto):,.0f}")
 
-    # ----- Vastikkeet ensimmäiseltä vuodelta -----
-    st.markdown("## Ensimmäisen vuoden vastikevertailu per m²")
-    def vastike(kustannus_lista):
-        vuosi_kust = kustannus_lista[0]
-        return vuosi_kust / maksavat_neliot, vuosi_kust / maksavat_neliot / 12
+    st.markdown("## Vastikkeet €/m²/v eri vuosina")
+    tarkasteluvuodet = list(range(1, 16)) + list(range(20, 51, 5))
+    data = {
+        "Vuosi": tarkasteluvuodet,
+        "Kaukolämpö €/m²/v": [kaukolampo[v - 1] / maksavat_neliot for v in tarkasteluvuodet],
+        "Maalämpö ilman myyntiä €/m²/v": [maalampo_ilman[v - 1] / maksavat_neliot for v in tarkasteluvuodet],
+        "Maalämpö myynnillä €/m²/v": [maalampo_myynnilla[v - 1] / maksavat_neliot for v in tarkasteluvuodet],
+    }
+    df = pd.DataFrame(data)
+    st.dataframe(df.style.format("{:.2f}"))
 
-    k_vuosi, k_kk = vastike(kaukolampo)
-    m_ilman_vuosi, m_ilman_kk = vastike(maalampo_ilman)
-    m_myynn_vuosi, m_myynn_kk = vastike(maalampo_myynnilla)
+    st.markdown("## Ensimmäisen vuoden kuukausivastikkeet per m²")
+    def vastike(kust):
+        return kust[0] / maksavat_neliot, kust[0] / maksavat_neliot / 12
 
-    st.markdown(f"**Kaukolämpö:** {k_vuosi:.2f} €/m²/v | {k_kk:.2f} €/m²/kk")
-    st.markdown(f"**Maalämpö ilman omaisuuden myyntiä:** {m_ilman_vuosi:.2f} €/m²/v | {m_ilman_kk:.2f} €/m²/kk")
-    st.markdown(f"**Maalämpö omaisuuden myynnillä:** {m_myynn_vuosi:.2f} €/m²/v | {m_myynn_kk:.2f} €/m²/kk")
+    k_v, k_kk = vastike(kaukolampo)
+    m_v1, m_kk1 = vastike(maalampo_ilman)
+    m_v2, m_kk2 = vastike(maalampo_myynnilla)
 
-    st.markdown("---")
-    st.markdown(f"**Erotus (kaukolämpö vs maalämpö ilman myyntiä, 1. vuosi): {k_vuosi - m_ilman_vuosi:+.2f} €/m²/v**")
-    st.markdown(f"**Erotus (kaukolämpö vs maalämpö myynnillä, 1. vuosi): {k_vuosi - m_myynn_vuosi:+.2f} €/m²/v**")
+    st.markdown(f"**Kaukolämpö:** {k_v:.2f} €/m²/v | {k_kk:.2f} €/m²/kk")
+    st.markdown(f"**Maalämpö ilman myyntiä:** {m_v1:.2f} €/m²/v | {m_kk1:.2f} €/m²/kk")
+    st.markdown(f"**Maalämpö myynnillä:** {m_v2:.2f} €/m²/v | {m_kk2:.2f} €/m²/kk")
 
 if __name__ == "__main__":
     main()
