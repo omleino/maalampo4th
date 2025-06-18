@@ -80,7 +80,7 @@ st.title("Maalämpö vs Kaukolämpö – 50 vuoden vertailu")
 
 with st.sidebar:
     st.header("Perustiedot")
-    investointi         = st.number_input("Investointi (€)", 650_000.0, step=10_000.0)
+    investointi = st.number_input("Investointi (€)", min_value=0.0, value=650_000.0, step=10_000.0)
     omaisuuden_myynti   = st.number_input("Myyntitulo (€)", 100_000.0, step=10_000.0)
     laina_aika          = st.slider("Investointilaina (v)", 5, 40, 20)
     korko               = st.number_input("Korko (%/v)", 3.0, step=0.1)
